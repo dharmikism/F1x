@@ -16,7 +16,10 @@ DYNAMIC_TERMS = (
 def classify(text: str) -> dict[str, object]:
     lowered = re.sub(r"\s+", " ", text.lower()).strip()
     sensitive = any(term in lowered for term in SENSITIVE_TERMS)
-    dynamic = any(term in lowered for term in DYNAMIC_TERMS)
+    # "live site" and "live app" are technical deployment terms, not a
+    # request for current news, prices, or another changing fact.
+    technical_live_term = any(term in lowered for term in ("live site", "live website", "live app", "live server", "go live"))
+    dynamic = any(term in lowered for term in DYNAMIC_TERMS) and not technical_live_term
     return {
         "safe_to_reuse": not sensitive and not dynamic,
         "sensitive": sensitive,

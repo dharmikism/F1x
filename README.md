@@ -77,4 +77,4 @@ For public Chrome Web Store distribution, replace the broad HTTPS host permissio
 - `POST /api/demo/reset`
 - `POST /api/demo/run`
 
-Knowledge and query metrics persist in `data/fixonce.db`. The default vector service uses normalized hashed word/character n-gram embeddings and cosine similarity so the MVP remains self-contained and cross-device through the server database.
+Knowledge and query metrics persist in `data/fixonce.db`. The default vector service uses normalized hashed word/character n-gram embeddings plus intent fingerprints for recurring issue patterns, then cosine similarity for retrieval. This keeps the MVP self-contained while allowing differently worded versions of the same technical problem to match through the shared server database.
