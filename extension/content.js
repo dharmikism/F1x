@@ -7,6 +7,7 @@
 
   function isPromptElement(element) {
     if (!element || !(element instanceof HTMLElement)) return false;
+    if (element.closest(".fixonce-overlay-host")) return false;
     if (element.matches("textarea")) return true;
     return element.isContentEditable || Boolean(element.closest("[contenteditable='true']"));
   }
@@ -14,7 +15,7 @@
     if (isPromptElement(eventTarget)) return eventTarget.closest("[contenteditable='true']") || eventTarget;
     const active = document.activeElement;
     if (isPromptElement(active)) return active.closest("[contenteditable='true']") || active;
-    return document.querySelector("textarea, [contenteditable='true']");
+    return [...document.querySelectorAll("textarea, [contenteditable='true']")].find((candidate) => isPromptElement(candidate)) || null;
   }
   function readPrompt(element = promptElement()) { if (!element) return ""; return String("value" in element ? element.value : element.innerText || element.textContent || "").trim(); }
   function sendMessage(message) {
@@ -74,11 +75,13 @@
       "[data-testid='conversation-turn-assistant']",
       "[data-testid='assistant-message']",
       "[data-testid*='assistant']",
+      "[data-is-streaming]",
+      "[class*='assistant-message']",
       ".assistant-turn",
       ".font-claude-message",
     ];
     const candidates = [...new Set(selectors.flatMap((selector) => [...document.querySelectorAll(selector)]))]
-      .filter((node) => node.innerText?.trim());
+      .filter((node) => !node.closest(".fixonce-overlay-host") && node.innerText?.trim());
     const nodes = candidates
       .filter((node) => !candidates.some((other) => other !== node && other.contains(node)))
       .sort((first, second) => first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
@@ -141,6 +144,7 @@
         state.autoObserver = new MutationObserver(scheduleAutoCapture);
         state.autoObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
       }
+      scheduleAutoCapture();
     } else {
       state.autoObserver?.disconnect();
       state.autoObserver = null;
@@ -152,7 +156,7 @@
 
   function loadAutoCaptureSetting() {
     try {
-      chrome.storage.sync.get({ autoCaptureEnabled: false }, (settings) => setAutoCaptureEnabled(settings.autoCaptureEnabled));
+      chrome.storage.sync.get({ autoCaptureEnabled: true }, (settings) => setAutoCaptureEnabled(settings.autoCaptureEnabled));
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area === "sync" && changes.autoCaptureEnabled) setAutoCaptureEnabled(changes.autoCaptureEnabled.newValue);
       });
@@ -185,7 +189,15 @@
     addCopyButton(host, item.solution);
     const alternativeButton = host.querySelector("[data-fixonce-alternative]");
     if (alternativeButton) alternativeButton.textContent = "Ask Featherless for another fix";
+    const useButton = host.querySelector(".fixonce-primary");
+    if (useButton) { useButton.removeAttribute("data-fixonce-close"); useButton.dataset.fixonceUse = "true"; useButton.textContent = "Copy & use known fix"; }
     host.addEventListener("click", async (event) => {
+      if (event.target.closest("[data-fixonce-use]")) {
+        const copied = await copyText(item.solution);
+        if (copied) closeOverlay();
+        showToast(copied ? "The known solution was copied to your clipboard." : "Use the Copy solution button or select the text manually.", copied ? "SOLUTION COPIED" : "COPY UNAVAILABLE");
+        return;
+      }
       if (event.target.closest("[data-fixonce-close]")) closeOverlay();
       if (event.target.closest("[data-fixonce-continue]")) { state.bypassNext = true; closeOverlay(); const button = state.lastSendButton || findSendButton(); if (button) button.click(); else showToast("Close this notice and press Send once to continue.", "CONTINUE NORMALLY"); }
       if (event.target.closest("[data-fixonce-alternative]")) showAlternativeForm(result);

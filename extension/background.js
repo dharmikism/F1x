@@ -70,7 +70,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.detail || "Automatic save failed.");
-        if (body.result_type === "new") await chrome.storage.local.set({ pendingAutoCapture: body });
+        if (body.auto_captured) {
+          await chrome.storage.local.set({ pendingAutoCapture: body });
+          await chrome.storage.local.remove(["pendingProblem", "pendingSource"]);
+        }
         sendResponse({ ok: true, result: body });
       } catch (error) {
         sendResponse({ ok: false, error: "Automatic saving is unavailable right now." });

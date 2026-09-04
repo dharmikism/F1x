@@ -132,9 +132,12 @@ function updateAutoCaptureStatus(enabled) {
     ? "On - the latest AI reply is saved privately after each submitted problem."
     : "Off - answers are never captured automatically.";
 }
-chrome.storage?.sync?.get({ autoCaptureEnabled: false }, (data) => updateAutoCaptureStatus(data.autoCaptureEnabled));
+chrome.storage?.sync?.get({ autoCaptureEnabled: true }, (data) => updateAutoCaptureStatus(data.autoCaptureEnabled));
 autoCaptureToggle?.addEventListener("change", () => {
   chrome.storage.sync.set({ autoCaptureEnabled: autoCaptureToggle.checked }, () => updateAutoCaptureStatus(autoCaptureToggle.checked));
+});
+chrome.storage?.onChanged?.addListener((changes, area) => {
+  if (area === "local" && changes.pendingAutoCapture?.newValue) showResult(changes.pendingAutoCapture.newValue);
 });
 chrome.storage?.local?.get(["pendingProblem", "pendingSource", "pendingAlternativeResult", "pendingAutoCapture"], (data) => {
   if (data?.pendingAutoCapture) {
