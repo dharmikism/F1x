@@ -46,7 +46,7 @@ STOPWORDS = {
 # networking questions equivalent.
 CONCEPT_PHRASES = {
     "network": ("wifi", "wireless", "network", "internet", "online", "website", "websites", "web page", "web pages", "browse", "browsing", "connectivity", "connection"),
-    "no_web_access": ("no internet", "cannot browse", "cannot access internet", "cannot access websites", "will not load", "does not load", "do not load", "not loading", "will not open", "does not open", "do not open", "not open", "offline", "no web access", "no connectivity", "internet unavailable", "internet not working", "web unavailable", "websites inaccessible", "nothing loads"),
+    "no_web_access": ("no internet", "cannot browse", "cannot access internet", "cannot access the internet", "cannot access websites", "cannot reach internet", "cannot reach the internet", "no access to internet", "will not load", "does not load", "do not load", "not loading", "will not open", "does not open", "do not open", "not open", "offline", "no web access", "no connectivity", "internet unavailable", "internet access unavailable", "internet not working", "web unavailable", "websites inaccessible", "nothing loads"),
     "vpn_remote": ("vpn", "virtual private network", "tunnel", "remote access", "remote network"),
     "internal_access": ("internal", "intranet", "company site", "company sites", "company tools", "corporate", "internal tools", "internal apps", "work apps"),
     "printer": ("printer", "printing", "print", "printer is on", "printer is online"),
@@ -118,6 +118,8 @@ def _semantic_concepts(normalized: str) -> set[str]:
     # a stable keyword, so add a small amount of contextual interpretation.
     words = set(normalized.split())
     if {"connected", "connects", "active", "on"} & words and {"unavailable", "unreachable", "timeout", "timeouts", "fails"} & words:
+        concepts.add("no_web_access")
+    if {"cannot", "unable"} & words and {"access", "reach"} & words and {"internet", "website", "websites", "web"} & words:
         concepts.add("no_web_access")
     if {"internal", "intranet", "corporate", "company"} & words and {"unavailable", "unreachable", "fails", "timeout", "timeouts"} & words:
         concepts.add("internal_access")
