@@ -1,10 +1,23 @@
 const $ = (selector) => document.querySelector(selector);
 const defaultApi = (window.FIXONCE_DEFAULT_API || "http://localhost:8000").replace(/\/$/, "");
 const getApiBase = () => new Promise((resolve) => chrome.storage.sync.get({ apiBaseUrl: defaultApi }, (data) => resolve(String(data.apiBaseUrl || defaultApi).replace(/\/$/, ""))));
+const formatApiError = (detail, fallback) => {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail.map((item) => {
+      const location = Array.isArray(item?.loc) ? item.loc.filter((part) => part !== "body").join(".") : "";
+      const message = item?.msg || "Invalid value";
+      return location ? `${location}: ${message}` : message;
+    }).filter(Boolean);
+    if (messages.length) return messages.join(" ");
+  }
+  if (detail && typeof detail === "object") return detail.message || detail.error || fallback;
+  return fallback;
+};
 const api = async (path, options = {}) => {
   const response = await fetch(`${await getApiBase()}${path}`, { headers: { "Content-Type": "application/json" }, ...options });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.detail || "FixOnce is unavailable.");
+  if (!response.ok) throw new Error(formatApiError(body.detail, "FixOnce is unavailable."));
   return body;
 };
 const esc = (value = "") => String(value).replace(/[&<>'"]/g, (character) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" }[character]));
