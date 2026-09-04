@@ -55,7 +55,8 @@ class Database:
                     expires_at TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    provider TEXT
+                    provider TEXT,
+                    related_knowledge_id INTEGER
                 );
                 CREATE TABLE IF NOT EXISTS queries (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,10 +72,18 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     knowledge_id INTEGER NOT NULL,
                     helpful INTEGER NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    note TEXT
                 );
                 """
             )
+            # Forward migrations keep existing local/Render databases usable.
+            knowledge_columns = {row["name"] for row in conn.execute("PRAGMA table_info(knowledge)").fetchall()}
+            if "related_knowledge_id" not in knowledge_columns:
+                conn.execute("ALTER TABLE knowledge ADD COLUMN related_knowledge_id INTEGER")
+            feedback_columns = {row["name"] for row in conn.execute("PRAGMA table_info(feedback)").fetchall()}
+            if "note" not in feedback_columns:
+                conn.execute("ALTER TABLE feedback ADD COLUMN note TEXT")
 
     def list_knowledge(self, include_drafts: bool = False) -> list[dict[str, Any]]:
         with self.connect() as conn:
@@ -99,15 +108,15 @@ class Database:
         with self.connect() as conn:
             return conn.execute("SELECT * FROM knowledge WHERE id = ?", (knowledge_id,)).fetchone()
 
-    def create_draft(self, problem: str, solution: str, category: str, provider: str) -> int:
+    def create_draft(self, problem: str, solution: str, category: str, provider: str, related_knowledge_id: int | None = None) -> int:
         timestamp = now()
         with self.connect() as conn:
             cursor = conn.execute(
                 """INSERT INTO knowledge
                 (problem, normalized_problem, embedding, solution, category, verified, shared,
-                 confidence, created_at, updated_at, provider)
-                VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)""",
-                (problem, problem.lower().strip(), json.dumps(embed(problem)), solution, category, 0.75, timestamp, timestamp, provider),
+                 confidence, created_at, updated_at, provider, related_knowledge_id)
+                VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)""",
+                (problem, problem.lower().strip(), json.dumps(embed(problem)), solution, category, 0.75, timestamp, timestamp, provider, related_knowledge_id),
             )
             return int(cursor.lastrowid)
 
@@ -132,11 +141,12 @@ class Database:
         with self.connect() as conn:
             conn.execute("UPDATE knowledge SET usage_count = usage_count + 1, updated_at = ? WHERE id = ?", (now(), knowledge_id))
 
-    def record_feedback(self, knowledge_id: int, helpful: bool):
+    def record_feedback(self, knowledge_id: int, helpful: bool, note: str | None = None):
         with self.connect() as conn:
             column = "helpful_count" if helpful else "unhelpful_count"
-            conn.execute(f"UPDATE knowledge SET {column} = {column} + 1, updated_at = ? WHERE id = ?", (now(), knowledge_id))
-            conn.execute("INSERT INTO feedback (knowledge_id, helpful, created_at) VALUES (?, ?, ?)", (knowledge_id, int(helpful), now()))
+            confidence_change = 0.01 if helpful else -0.02
+            conn.execute(f"UPDATE knowledge SET {column} = {column} + 1, confidence = MIN(0.99, MAX(0.45, confidence + ?)), updated_at = ? WHERE id = ?", (confidence_change, now(), knowledge_id))
+            conn.execute("INSERT INTO feedback (knowledge_id, helpful, created_at, note) VALUES (?, ?, ?, ?)", (knowledge_id, int(helpful), now(), note))
 
     def record_query(self, query: str, result_type: str, match_id: int | None, similarity: float | None, latency_ms: int, ai_latency_ms: int | None = None):
         with self.connect() as conn:

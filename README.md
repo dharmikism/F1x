@@ -31,6 +31,17 @@ The extension also has an explicit, site-limited integration for `chatgpt.com`, 
 
 The content script only observes the supported prompt field and send action. It does not intercept network traffic, read unrelated page content, or automatically publish AI answers.
 
+## Structured fixes and recovery paths
+
+Featherless is prompted to return a reusable troubleshooting playbook with:
+
+- a short title and reason the fix may work;
+- 3 to 5 ordered steps;
+- a concrete verification check;
+- an `If it doesn't work` fallback path.
+
+When a known fix fails on another laptop, the user can choose **I need another fix**, add a short failure note, and generate a separate private alternative. The original fix remains available, the failed attempt is recorded as negative feedback, and the alternative must still be tested, verified, and explicitly shared before it becomes community memory.
+
 ## Deploy with Docker
 
 The dashboard and API ship as one container, so there is no frontend build step or separate service to coordinate:

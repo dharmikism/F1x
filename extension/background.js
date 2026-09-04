@@ -42,5 +42,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     sendResponse({ ok: true });
   }
+  if (message?.type === "GENERATE_ALTERNATIVE") {
+    (async () => {
+      try {
+        const base = await getApiBase();
+        const response = await fetch(`${base}/api/knowledge/${Number(message.knowledgeId)}/alternative`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ problem: String(message.problem || ""), note: String(message.note || "") }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.detail || "Alternative fix failed.");
+        await chrome.storage.local.set({ pendingAlternativeResult: body });
+        sendResponse({ ok: true, result: body });
+      } catch (error) {
+        sendResponse({ ok: false, error: "The alternative fix could not be generated." });
+      }
+    })();
+    return true;
+  }
 });
 

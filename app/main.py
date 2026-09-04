@@ -53,6 +53,12 @@ class VerifyRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     helpful: bool
+    note: str | None = Field(default=None, max_length=500)
+
+
+class AlternativeRequest(BaseModel):
+    problem: str = Field(min_length=3, max_length=1000)
+    note: str | None = Field(default=None, max_length=500)
 
 
 def format_knowledge(row: Any, similarity: float | None = None) -> dict[str, Any]:
@@ -188,6 +194,40 @@ def save_solution(payload: SaveSolutionRequest):
     }
 
 
+@app.post("/api/knowledge/{knowledge_id}/alternative")
+def alternative_solution(knowledge_id: int, payload: AlternativeRequest):
+    original = db.get_knowledge(knowledge_id)
+    if not original:
+        raise HTTPException(status_code=404, detail="That solution no longer exists.")
+    started = time.perf_counter()
+    failure_note = payload.note.strip() if payload.note else "The previous fix did not solve the problem on this device."
+    generation = generate_solution(payload.problem.strip(), previous_solution=original["solution"], failure_note=failure_note)
+    draft_id = db.create_draft(
+        payload.problem.strip(),
+        generation.solution,
+        original["category"],
+        generation.provider,
+        related_knowledge_id=knowledge_id,
+    )
+    db.record_feedback(knowledge_id, False, failure_note)
+    latency = max(1, round((time.perf_counter() - started) * 1000))
+    db.record_query(payload.problem.strip(), "new", draft_id, None, latency, generation.latency_ms)
+    return {
+        "result_type": "new",
+        "alternative": True,
+        "draft_id": draft_id,
+        "problem": payload.problem.strip(),
+        "suggestion": generation.solution,
+        "category": original["category"],
+        "provider": generation.provider,
+        "latency_ms": latency,
+        "ai_latency_ms": generation.latency_ms,
+        "ai_called": not generation.used_fallback,
+        "fallback": generation.used_fallback,
+        "related_knowledge_id": knowledge_id,
+    }
+
+
 @app.post("/api/knowledge/{knowledge_id}/verify")
 def verify(knowledge_id: int, payload: VerifyRequest):
     row = db.verify(knowledge_id, payload.solved)
@@ -210,7 +250,7 @@ def share(knowledge_id: int):
 def feedback(knowledge_id: int, payload: FeedbackRequest):
     if not db.get_knowledge(knowledge_id):
         raise HTTPException(status_code=404, detail="That solution no longer exists.")
-    db.record_feedback(knowledge_id, payload.helpful)
+    db.record_feedback(knowledge_id, payload.helpful, payload.note)
     return {"ok": True}
 
 
