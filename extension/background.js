@@ -8,10 +8,22 @@ chrome.contextMenus.onClicked.addListener((info) => {
   }
 });
 
+function normalizeApiBase(value) {
+  const trimmed = String(value || "").trim().replace(/\/$/, "");
+  try {
+    const parsed = new URL(trimmed);
+    const privateNetwork = /^(localhost|127(?:\.\d+){3}|10(?:\.\d+){3}|192\.168(?:\.\d+){2}|172\.(?:1[6-9]|2\d|3[01])\.\d+|::1)$/i.test(parsed.hostname);
+    if (parsed.protocol === "http:" && !privateNetwork) parsed.protocol = "https:";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return trimmed;
+  }
+}
+
 function getApiBase() {
   return new Promise((resolve) => {
     chrome.storage.sync.get({ apiBaseUrl: "http://localhost:8000" }, (data) => {
-      resolve(String(data.apiBaseUrl || "http://localhost:8000").replace(/\/$/, ""));
+      resolve(normalizeApiBase(data.apiBaseUrl || "http://localhost:8000"));
     });
   });
 }

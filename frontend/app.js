@@ -92,7 +92,26 @@ async function handleResultClick(event) {
   } catch (error) { toast(error.message, true); }
 }
 
+async function deleteAllSolutions() {
+  const confirmation = window.prompt('This permanently deletes every saved solution. Type "DELETE ALL" to continue.');
+  if (confirmation !== "DELETE ALL") { toast("Deletion cancelled."); return; }
+  const button = $("#delete-all-button");
+  button.disabled = true;
+  button.textContent = "Deleting...";
+  try {
+    const result = await api("/api/knowledge", { method:"DELETE", body:JSON.stringify({confirmation}) });
+    $("#result-region").innerHTML = "";
+    toast(String(result.deleted_count) + " saved solution(s) deleted.");
+    await refresh();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Delete all solutions";
+  }
+}
 async function refresh() { const [stats, memory] = await Promise.all([api("/api/stats"), api("/api/knowledge")]); updateMetrics(stats); state.knowledge = memory.items; renderKnowledge(); }
+$("#delete-all-button").addEventListener("click", deleteAllSolutions);
 async function runSimulation() { const modal = $("#simulation-modal"); modal.hidden = false; $("#simulation-content").innerHTML = `<div class="loading-line">Running the fixed paraphrase set through semantic search…</div>`; try { const result = await api("/api/demo/run", {method:"POST"}); $("#simulation-content").innerHTML = `<div class="sim-banner"><span>${result.label} · ${result.total_questions} questions</span><strong>${result.reuse_rate}% reuse rate</strong></div><div class="sim-columns"><div class="sim-box"><span>WITHOUT FIXONCE</span><strong>${result.without_fixonce.ai_generations}</strong><p>fresh AI generations</p></div><div class="sim-box accent"><span>WITH FIXONCE</span><strong>${result.with_fixonce.ai_generations}</strong><p>fresh generations · ${result.with_fixonce.community_resolutions} community resolutions</p></div></div><div class="sim-foot"><span>AI generations avoided <strong>${result.with_fixonce.ai_generations_avoided}</strong></span><span>Avg semantic search <strong>${result.avg_semantic_search_ms} ms</strong></span><span>Run time <strong>${result.elapsed_ms} ms</strong></span></div>`; } catch (error) { $("#simulation-content").innerHTML = `<div class="loading-line">${escapeHtml(error.message)}</div>`; } }
 
 document.addEventListener("DOMContentLoaded", async () => {

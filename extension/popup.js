@@ -1,6 +1,17 @@
 const $ = (selector) => document.querySelector(selector);
-const defaultApi = (window.FIXONCE_DEFAULT_API || "http://localhost:8000").replace(/\/$/, "");
-const getApiBase = () => new Promise((resolve) => chrome.storage.sync.get({ apiBaseUrl: defaultApi }, (data) => resolve(String(data.apiBaseUrl || defaultApi).replace(/\/$/, ""))));
+const normalizeApiBase = (value) => {
+  const trimmed = String(value || "").trim().replace(/\/$/, "");
+  try {
+    const parsed = new URL(trimmed);
+    const privateNetwork = /^(localhost|127(?:\.\d+){3}|10(?:\.\d+){3}|192\.168(?:\.\d+){2}|172\.(?:1[6-9]|2\d|3[01])\.\d+|::1)$/i.test(parsed.hostname);
+    if (parsed.protocol === "http:" && !privateNetwork) parsed.protocol = "https:";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return trimmed;
+  }
+};
+const defaultApi = normalizeApiBase(window.FIXONCE_DEFAULT_API || "http://localhost:8000");
+const getApiBase = () => new Promise((resolve) => chrome.storage.sync.get({ apiBaseUrl: defaultApi }, (data) => resolve(normalizeApiBase(data.apiBaseUrl || defaultApi))));
 const formatApiError = (detail, fallback) => {
   if (typeof detail === "string" && detail.trim()) return detail;
   if (Array.isArray(detail)) {
@@ -21,6 +32,24 @@ const api = async (path, options = {}) => {
   return body;
 };
 const esc = (value = "") => String(value).replace(/[&<>'"]/g, (character) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" }[character]));
+async function copyText(value) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(String(value || ""));
+      return true;
+    }
+  } catch (error) {
+    // Fall through to the legacy copy path when clipboard permission is unavailable.
+  }
+  const area = document.createElement("textarea");
+  area.value = String(value || ""); area.setAttribute("readonly", "");
+  area.style.position = "fixed"; area.style.opacity = "0";
+  document.body.appendChild(area); area.focus(); area.select();
+  let copied = false;
+  try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
+  area.remove();
+  return copied;
+}
 let current = null;
 
 function showSearch() { $("#save-view").hidden = true; $("#search-view").hidden = false; $("#popup-result").hidden = true; }
@@ -35,6 +64,13 @@ function showResult(result) {
     const title = result.result_type === "blocked" ? "Kept out of community memory" : result.auto_captured ? "Latest AI answer saved privately" : result.alternative ? "Alternative fix" : "Suggested fix";
     const status = result.result_type === "blocked" ? "! PRIVATE / TIME-SENSITIVE" : result.alternative ? "↻ ALTERNATIVE FIX" : "+ NEW PROBLEM";
     region.innerHTML = `<div class="popup-status" style="color:${result.result_type === "blocked" ? "var(--warm)" : "var(--purple)"}">${status}</div><h2 class="popup-result-title">${title}</h2><p class="popup-problem">${esc(result.problem)}</p><div class="popup-solution">${esc(result.suggestion)}</div><div class="popup-facts"><span class="popup-fact purple">${esc(result.provider)}</span><span class="popup-fact purple">${result.latency_ms || "—"} ms total</span></div>${result.result_type === "blocked" ? `<div class="popup-verify" style="border-color:#604c36;background:#30261f"><strong>Privacy guardrail</strong><span>${esc(result.safety.reason || "This request is not reusable.")}</span></div>` : `<div class="popup-verify" id="popup-verify"><strong>Did this solve the problem?</strong><span>Verify it before sharing. Sharing is always optional.</span><div class="popup-share"><button data-verify="true" data-id="${result.draft_id}">✓ Yes, it worked</button><button class="popup-ghost" data-verify="false" data-id="${result.draft_id}">No</button></div></div>`}<button class="back-button" data-back="true">← New problem</button>`;
+  }
+  if (result.result_type === "known") {
+    const copyButton = document.createElement("button");
+    copyButton.type = "button"; copyButton.className = "popup-copy"; copyButton.dataset.copySolution = "true"; copyButton.textContent = "Copy solution";
+    region.querySelector(".popup-solution")?.after(copyButton);
+    const alternativeButton = region.querySelector("[data-alternative]");
+    if (alternativeButton) alternativeButton.textContent = "Ask Featherless for another fix";
   }
 }
 
@@ -65,6 +101,13 @@ $("#save-form").addEventListener("submit", async (event) => {
 $("#popup-result").addEventListener("click", async (event) => {
   const button = event.target.closest("button"); if (!button) return;
   try {
+    if (button.dataset.copySolution) {
+      button.disabled = true; button.textContent = "Copying…";
+      const copied = await copyText(current?.knowledge?.solution || current?.suggestion || "");
+      button.disabled = false; button.textContent = copied ? "Copied solution" : "Select the text manually";
+      if (copied) setTimeout(() => { if (button.isConnected) button.textContent = "Copy solution"; }, 1800);
+      return;
+    }
     if (button.dataset.back) { showSearch(); return; }
     if (button.dataset.helpful) { await api(`/api/knowledge/${button.dataset.id}/feedback`, { method: "POST", body: JSON.stringify({ helpful: button.dataset.helpful === "true" }) }); button.textContent = "✓ Saved"; button.disabled = true; return; }
     if (button.dataset.alternative) { showAlternativePrompt(button.dataset.id); button.disabled = true; return; }

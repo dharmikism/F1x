@@ -88,11 +88,14 @@ The Chrome Manifest V3 extension is the primary user-facing product. It supports
 - A selected-text context-menu action.
 - Explicit ChatGPT and Claude support.
 - A pre-send known-fix notice.
+- A scrollable, selectable solution card with one-click copy for known fixes.
 - Saving a useful answer from ChatGPT or Claude as a private draft.
 - Optional automatic capture of the latest AI reply as a private draft.
 - Verification, feedback, optional sharing, and alternative recovery paths.
 
 By default, the extension observes only the prompt field (`textarea` or `contenteditable`). It does not intercept network traffic or automatically publish anything. If the user turns on `Auto-save AI replies` in the popup, it also observes the visible assistant response in the active ChatGPT or Claude page and sends it to the backend as a private draft. That opt-in setting is off by default.
+
+When a known fix is displayed, the user can copy it directly into the AI chat. If it fails on the current device, `Ask Featherless for another fix` sends the failure note and previous playbook to Featherless AI, which generates a meaningfully different structured recovery path and keeps it private until tested.
 
 While the user types, the extension performs a lookup-only request. If a match is found, it shows the known fix before the prompt is sent. If there is no match, the original prompt continues normally and the problem is stored locally as a pending item. With automatic capture enabled, the eventual AI answer is saved directly as a private draft; with it off, the user can save that answer manually later.
 
@@ -241,6 +244,7 @@ POST /api/search-memory                         lookup-only extension search
 POST /api/find-fix                              search, then generate on a miss
 POST /api/knowledge/save                        save a private AI answer draft
 POST /api/knowledge/auto-save                   upsert an opt-in captured AI reply
+DELETE /api/knowledge                           delete all saved solutions after confirmation
 POST /api/knowledge/{id}/alternative            generate a different recovery path
 POST /api/knowledge/{id}/verify                 human verification
 POST /api/knowledge/{id}/share                  explicit community sharing

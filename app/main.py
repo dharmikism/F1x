@@ -54,6 +54,10 @@ class AutoCaptureRequest(BaseModel):
     source: str = Field(default="Automatically captured from ChatGPT or Claude", max_length=120)
 
 
+class DeleteAllKnowledgeRequest(BaseModel):
+    confirmation: str = Field(min_length=10, max_length=20)
+
+
 class VerifyRequest(BaseModel):
     solved: bool
 
@@ -297,6 +301,17 @@ def feedback(knowledge_id: int, payload: FeedbackRequest):
 @app.get("/api/knowledge")
 def knowledge():
     return {"items": db.list_knowledge()}
+
+
+@app.delete("/api/knowledge")
+def delete_all_knowledge(payload: DeleteAllKnowledgeRequest):
+    if payload.confirmation.strip() != "DELETE ALL":
+        raise HTTPException(status_code=400, detail='Type "DELETE ALL" to permanently remove all saved solutions.')
+    deleted_count = db.delete_all_knowledge()
+    return {
+        "deleted_count": deleted_count,
+        "message": f"Deleted {deleted_count} saved solution(s). Query analytics were preserved.",
+    }
 
 
 @app.get("/api/stats")

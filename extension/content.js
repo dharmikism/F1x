@@ -1,7 +1,7 @@
 (function () {
   if (window.top !== window.self) return;
 
-  const state = { lookupTimer: null, memory: null, memoryQuery: "", overlay: null, toast: null, bypassNext: false, lastSendButton: null, autoCaptureEnabled: false, autoObserver: null, captureTimer: null, captureProblem: "", captureKey: "", lastAssistantReply: "", captureNoticeShown: false, captureInFlight: false, captureQueued: false };
+  const state = { lookupTimer: null, memory: null, memoryQuery: "", overlay: null, toast: null, bypassNext: false, replayEvents: 0, submitCheckInFlight: false, lastSendButton: null, autoCaptureEnabled: false, autoObserver: null, captureTimer: null, captureProblem: "", captureKey: "", lastAssistantReply: "", captureNoticeShown: false, captureInFlight: false, captureQueued: false };
   const source = location.hostname.includes("claude") ? "Claude" : "ChatGPT";
   const normalize = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -36,6 +36,37 @@
   function closeOverlay() { if (state.overlay) state.overlay.remove(); state.overlay = null; }
   function makeHost() { const host = document.createElement("div"); host.className = "fixonce-overlay-host"; document.documentElement.appendChild(host); return host; }
   function escapeHtml(value = "") { return String(value).replace(/[&<>'"]/g, (character) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" }[character])); }
+  async function copyText(value) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(String(value || ""));
+        return true;
+      }
+    } catch (error) {
+      // Fall through to the legacy copy path when the page denies clipboard access.
+    }
+    const area = document.createElement("textarea");
+    area.value = String(value || ""); area.setAttribute("readonly", "");
+    area.style.position = "fixed"; area.style.opacity = "0";
+    document.body.appendChild(area); area.focus(); area.select();
+    let copied = false;
+    try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
+    area.remove();
+    return copied;
+  }
+  function addCopyButton(host, solution) {
+    const solutionBox = host.querySelector(".fixonce-solution");
+    if (!solutionBox) return;
+    const button = document.createElement("button");
+    button.type = "button"; button.className = "fixonce-copy"; button.textContent = "Copy solution";
+    button.addEventListener("click", async () => {
+      button.disabled = true; button.textContent = "Copying…";
+      const copied = await copyText(solution);
+      button.disabled = false; button.textContent = copied ? "Copied solution" : "Select the text manually";
+      if (copied) setTimeout(() => { if (button.isConnected) button.textContent = "Copy solution"; }, 1800);
+    });
+    solutionBox.after(button);
+  }
 
   function assistantReplyText() {
     const selectors = [
@@ -140,6 +171,7 @@
   function showAlternative(result) {
     if (!state.overlay) return;
     state.overlay.innerHTML = `<section class="fixonce-panel fixonce-new"><div class="fixonce-panel-head"><span>↻ ALTERNATIVE FIX</span><button class="fixonce-close" data-fixonce-close aria-label="Close">×</button></div><h2>A second path for this problem</h2><p>Featherless generated a separate playbook after the first fix did not work.</p><div class="fixonce-solution">${escapeHtml(result.suggestion)}</div><div class="fixonce-meta"><span>${escapeHtml(result.provider)}</span><span>${result.latency_ms || "—"} ms</span></div><div class="fixonce-actions"><button class="fixonce-primary" data-fixonce-close>Use this fix</button></div><div class="fixonce-foot">Open the FixOnce popup after testing to verify and optionally share this draft.</div></section>`;
+    addCopyButton(state.overlay, result.suggestion);
   }
 
   function showAlternativeForm(result) {
@@ -150,6 +182,9 @@
   function showKnown(result) {
     closeOverlay(); const host = makeHost(); state.overlay = host; const item = result.knowledge;
     host.innerHTML = `<section class="fixonce-panel"><div class="fixonce-panel-head"><span>✓ KNOWN FIX FOUND</span><button class="fixonce-close" data-fixonce-close aria-label="Close">×</button></div><h2>Before you send this to ${source}</h2><p>Someone in your community already solved this underlying problem.</p><div class="fixonce-solution">${escapeHtml(item.solution)}</div><div class="fixonce-meta"><span>✓ ${item.verification_count} verifications</span><span>${result.search_latency_ms} ms lookup</span><span>AI not required</span></div><div class="fixonce-actions"><button class="fixonce-primary" data-fixonce-close>Use known fix</button><button class="fixonce-secondary" data-fixonce-alternative>I need another fix</button><button class="fixonce-secondary" data-fixonce-continue>Continue to ${source}</button></div><div class="fixonce-foot">Your prompt stays in ${source} unless you choose to send it.</div></section>`;
+    addCopyButton(host, item.solution);
+    const alternativeButton = host.querySelector("[data-fixonce-alternative]");
+    if (alternativeButton) alternativeButton.textContent = "Ask Featherless for another fix";
     host.addEventListener("click", async (event) => {
       if (event.target.closest("[data-fixonce-close]")) closeOverlay();
       if (event.target.closest("[data-fixonce-continue]")) { state.bypassNext = true; closeOverlay(); const button = state.lastSendButton || findSendButton(); if (button) button.click(); else showToast("Close this notice and press Send once to continue.", "CONTINUE NORMALLY"); }
@@ -176,10 +211,46 @@
   }
   function scheduleLookup(problem) { closeOverlay(); state.memory = null; state.memoryQuery = ""; if (state.lookupTimer) clearTimeout(state.lookupTimer); if (problem.length < 12) return; state.lookupTimer = setTimeout(() => lookup(problem), 450); }
   function rememberPending(problem) { sendMessage({ type: "SET_PENDING", problem, source }); showToast("No known fix found — your request will continue normally. After the answer, open FixOnce and choose Save an AI answer.", "NEW PROBLEM"); }
+  function replayOriginalSend(event) {
+    state.replayEvents = event.type === "submit" ? 1 : 2;
+    if (event.type === "submit" && typeof event.target?.requestSubmit === "function") {
+      event.target.requestSubmit();
+      return;
+    }
+    const button = state.lastSendButton || findSendButton();
+    if (button) {
+      button.click();
+      return;
+    }
+    state.replayEvents = 0;
+    showToast("Close this notice and press Send once to continue.", "CONTINUE NORMALLY");
+  }
+  async function checkBeforeSubmit(event, element, problem) {
+    state.submitCheckInFlight = true;
+    const response = await sendMessage({ type: "CHECK_MEMORY", problem });
+    state.submitCheckInFlight = false;
+    if (normalize(readPrompt(element)) !== normalize(problem)) return;
+    if (response?.ok) {
+      state.memory = response.result;
+      state.memoryQuery = problem;
+      if (response.result.result_type === "known") {
+        showKnown(response.result);
+        return;
+      }
+    }
+    rememberPending(problem);
+    replayOriginalSend(event);
+  }
   function handleSubmit(event, element) {
-    const problem = readPrompt(element); if (!problem) return; rememberCaptureProblem(problem); if (state.bypassNext) { state.bypassNext = false; return; }
-    const sameQuery = state.memory && normalize(state.memoryQuery) === normalize(problem); state.lastSendButton = event.type === "click" ? event.target.closest("button") : findSendButton();
-    if (sameQuery && state.memory.result_type === "known") { event.preventDefault(); event.stopImmediatePropagation(); showKnown(state.memory); return; }
+    if (state.replayEvents > 0) { state.replayEvents -= 1; return; }
+    const problem = readPrompt(element); if (!problem) return;
+    if (state.submitCheckInFlight) { event.preventDefault(); event.stopImmediatePropagation(); return; }
+    rememberCaptureProblem(problem); if (state.bypassNext) { state.bypassNext = false; return; }
+    state.lastSendButton = event.type === "click" ? event.target.closest("button") : findSendButton();
+    if (problem.length >= 12) {
+      event.preventDefault(); event.stopImmediatePropagation(); checkBeforeSubmit(event, element, problem);
+      return;
+    }
     rememberPending(problem);
   }
 

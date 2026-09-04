@@ -126,6 +126,14 @@ class Database:
         with self.connect() as conn:
             return conn.execute("SELECT * FROM knowledge WHERE id = ?", (knowledge_id,)).fetchone()
 
+    def delete_all_knowledge(self) -> int:
+        """Delete every saved solution while preserving query analytics."""
+        with self.connect() as conn:
+            count = conn.execute("SELECT COUNT(*) AS count FROM knowledge").fetchone()["count"]
+            conn.execute("DELETE FROM feedback")
+            conn.execute("DELETE FROM knowledge")
+            return int(count)
+
     def create_draft(self, problem: str, solution: str, category: str, provider: str, related_knowledge_id: int | None = None) -> int:
         timestamp = now()
         with self.connect() as conn:
