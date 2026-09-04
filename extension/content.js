@@ -181,6 +181,7 @@
   function showAlternativeForm(result) {
     if (!state.overlay) return;
     state.overlay.innerHTML = `<section class="fixonce-panel fixonce-new"><div class="fixonce-panel-head"><span>ALTERNATIVE FIX</span><button class="fixonce-close" data-fixonce-close aria-label="Close">×</button></div><h2>What failed on this device?</h2><p>Featherless will use this note to generate a different structured playbook.</p><textarea class="fixonce-note" rows="3" placeholder="Example: DNS still timed out after reconnecting."></textarea><div class="fixonce-actions"><button class="fixonce-primary" data-fixonce-generate>Generate another fix</button><button class="fixonce-secondary" data-fixonce-close>Cancel</button></div></section>`;
+    state.overlay.querySelector(".fixonce-note")?.focus();
   }
 
   function showKnown(result) {
@@ -221,7 +222,13 @@
     state.memory = response.result; state.memoryQuery = problem;
     if (response.result.result_type === "known") showKnown(response.result);
   }
-  function scheduleLookup(problem) { closeOverlay(); state.memory = null; state.memoryQuery = ""; if (state.lookupTimer) clearTimeout(state.lookupTimer); if (problem.length < 12) return; state.lookupTimer = setTimeout(() => lookup(problem), 450); }
+  function scheduleLookup(problem) {
+    if (state.overlay?.querySelector(".fixonce-note") && state.overlay.contains(document.activeElement)) return;
+    closeOverlay(); state.memory = null; state.memoryQuery = "";
+    if (state.lookupTimer) clearTimeout(state.lookupTimer);
+    if (problem.length < 12) return;
+    state.lookupTimer = setTimeout(() => lookup(problem), 450);
+  }
   function rememberPending(problem) { sendMessage({ type: "SET_PENDING", problem, source }); showToast("No known fix found — your request will continue normally. After the answer, open FixOnce and choose Save an AI answer.", "NEW PROBLEM"); }
   function replayOriginalSend(event) {
     state.replayEvents = event.type === "submit" ? 1 : 2;
@@ -266,9 +273,9 @@
     rememberPending(problem);
   }
 
-  document.addEventListener("input", (event) => { if (isPromptElement(event.target)) scheduleLookup(readPrompt(event.target)); }, true);
-  document.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey && isPromptElement(event.target)) handleSubmit(event, event.target); }, true);
+  document.addEventListener("input", (event) => { if (event.target?.closest?.(".fixonce-overlay-host")) return; if (isPromptElement(event.target)) scheduleLookup(readPrompt(event.target)); }, true);
+  document.addEventListener("keydown", (event) => { if (event.target?.closest?.(".fixonce-overlay-host")) return; if (event.key === "Enter" && !event.shiftKey && isPromptElement(event.target)) handleSubmit(event, event.target); }, true);
   document.addEventListener("click", (event) => { const button = event.target.closest?.("button"); if (!button) return; const label = `${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""} ${button.dataset.testid || ""}`.toLowerCase(); if (/send|submit/.test(label)) handleSubmit(event, promptElement()); }, true);
-  document.addEventListener("submit", (event) => { const element = promptElement(); if (element) handleSubmit(event, element); }, true);
+  document.addEventListener("submit", (event) => { if (event.target?.closest?.(".fixonce-overlay-host")) return; const element = promptElement(); if (element) handleSubmit(event, element); }, true);
   loadAutoCaptureSetting();
 })();

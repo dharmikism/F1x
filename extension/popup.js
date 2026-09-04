@@ -137,7 +137,7 @@ autoCaptureToggle?.addEventListener("change", () => {
   chrome.storage.sync.set({ autoCaptureEnabled: autoCaptureToggle.checked }, () => updateAutoCaptureStatus(autoCaptureToggle.checked));
 });
 chrome.storage?.onChanged?.addListener((changes, area) => {
-  if (area === "local" && changes.pendingAutoCapture?.newValue) showResult(changes.pendingAutoCapture.newValue);
+  if (area === "local" && changes.pendingAutoCapture?.newValue && !$("#popup-alternative")) showResult(changes.pendingAutoCapture.newValue);
 });
 chrome.storage?.local?.get(["pendingProblem", "pendingSource", "pendingAlternativeResult", "pendingAutoCapture"], (data) => {
   if (data?.pendingAutoCapture) {
