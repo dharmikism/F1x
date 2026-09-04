@@ -1,7 +1,7 @@
 (function () {
   if (window.top !== window.self) return;
 
-  const state = { lookupTimer: null, memory: null, memoryQuery: "", overlay: null, toast: null, bypassNext: false, lastSendButton: null };
+  const state = { lookupTimer: null, memory: null, memoryQuery: "", overlay: null, toast: null, bypassNext: false, lastSendButton: null, autoCaptureEnabled: false, autoObserver: null, captureTimer: null, captureProblem: "", captureKey: "", lastAssistantReply: "", captureNoticeShown: false, captureInFlight: false, captureQueued: false };
   const source = location.hostname.includes("claude") ? "Claude" : "ChatGPT";
   const normalize = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -17,10 +17,118 @@
     return document.querySelector("textarea, [contenteditable='true']");
   }
   function readPrompt(element = promptElement()) { if (!element) return ""; return String("value" in element ? element.value : element.innerText || element.textContent || "").trim(); }
-  function sendMessage(message) { return new Promise((resolve) => chrome.runtime.sendMessage(message, resolve)); }
+  function sendMessage(message) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+      try {
+        if (typeof chrome === "undefined" || !chrome.runtime?.id) { finish({ ok: false, error: "The extension was reloaded. Refresh this tab." }); return; }
+        const pending = chrome.runtime.sendMessage(message, (response) => {
+          const runtimeError = chrome.runtime.lastError;
+          finish(runtimeError ? { ok: false, error: runtimeError.message } : (response || { ok: false, error: "No response from FixOnce." }));
+        });
+        pending?.catch((error) => finish({ ok: false, error: error?.message || "The extension context is unavailable." }));
+      } catch (error) {
+        finish({ ok: false, error: error?.message || "The extension context is unavailable." });
+      }
+    });
+  }
   function closeOverlay() { if (state.overlay) state.overlay.remove(); state.overlay = null; }
   function makeHost() { const host = document.createElement("div"); host.className = "fixonce-overlay-host"; document.documentElement.appendChild(host); return host; }
   function escapeHtml(value = "") { return String(value).replace(/[&<>'"]/g, (character) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" }[character])); }
+
+  function assistantReplyText() {
+    const selectors = [
+      "[data-message-author-role='assistant']",
+      "[data-testid='conversation-turn-assistant']",
+      "[data-testid='assistant-message']",
+      "[data-testid*='assistant']",
+      ".assistant-turn",
+      ".font-claude-message",
+    ];
+    const candidates = [...new Set(selectors.flatMap((selector) => [...document.querySelectorAll(selector)]))]
+      .filter((node) => node.innerText?.trim());
+    const nodes = candidates
+      .filter((node) => !candidates.some((other) => other !== node && other.contains(node)))
+      .sort((first, second) => first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+    const latest = nodes[nodes.length - 1];
+    return latest?.innerText?.trim() || "";
+  }
+
+  function captureConversationKey() {
+    const route = location.pathname.match(/\/(?:c|chat|conversation)\/([^/]+)/i)?.[1] || location.pathname || "/";
+    const value = `${source}|${location.hostname}|${route}`;
+    let hash = 2166136261;
+    for (const character of value) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `fixonce:${source.toLowerCase()}:${hash >>> 0}`;
+  }
+
+  function rememberCaptureProblem(problem) {
+    state.captureProblem = problem;
+    state.captureKey = captureConversationKey();
+    state.lastAssistantReply = assistantReplyText();
+    state.captureNoticeShown = false;
+  }
+
+  function scheduleAutoCapture() {
+    if (!state.autoCaptureEnabled || !state.captureProblem) return;
+    if (state.captureTimer) clearTimeout(state.captureTimer);
+    state.captureTimer = setTimeout(async () => {
+      state.captureTimer = null;
+      const reply = assistantReplyText();
+      if (reply.length < 10 || reply === state.lastAssistantReply) return;
+      state.lastAssistantReply = reply;
+      state.captureKey = captureConversationKey();
+      if (state.captureInFlight) {
+        state.captureQueued = true;
+        return;
+      }
+      state.captureInFlight = true;
+      try {
+        const response = await sendMessage({ type: "AUTO_CAPTURE_SOLUTION", problem: state.captureProblem, solution: reply, captureKey: state.captureKey, source });
+        if (response?.ok && response.result?.result_type === "new" && !state.captureNoticeShown) {
+          state.captureNoticeShown = true;
+          showToast("Latest AI reply saved as a private draft. Open FixOnce to verify it before sharing.", "AUTO-SAVED DRAFT");
+        }
+      } finally {
+        state.captureInFlight = false;
+        if (state.captureQueued && state.autoCaptureEnabled) {
+          state.captureQueued = false;
+          scheduleAutoCapture();
+        }
+      }
+    }, 1200);
+  }
+
+  function setAutoCaptureEnabled(enabled) {
+    state.autoCaptureEnabled = Boolean(enabled);
+    if (state.autoCaptureEnabled) {
+      if (!state.autoObserver && document.body) {
+        state.autoObserver = new MutationObserver(scheduleAutoCapture);
+        state.autoObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+      }
+    } else {
+      state.autoObserver?.disconnect();
+      state.autoObserver = null;
+      if (state.captureTimer) clearTimeout(state.captureTimer);
+      state.captureTimer = null;
+      state.captureQueued = false;
+    }
+  }
+
+  function loadAutoCaptureSetting() {
+    try {
+      chrome.storage.sync.get({ autoCaptureEnabled: false }, (settings) => setAutoCaptureEnabled(settings.autoCaptureEnabled));
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === "sync" && changes.autoCaptureEnabled) setAutoCaptureEnabled(changes.autoCaptureEnabled.newValue);
+      });
+    } catch (error) {
+      setAutoCaptureEnabled(false);
+    }
+  }
 
   function showToast(message, title = "FIXONCE") {
     if (state.toast) state.toast.remove();
@@ -69,7 +177,7 @@
   function scheduleLookup(problem) { closeOverlay(); state.memory = null; state.memoryQuery = ""; if (state.lookupTimer) clearTimeout(state.lookupTimer); if (problem.length < 12) return; state.lookupTimer = setTimeout(() => lookup(problem), 450); }
   function rememberPending(problem) { sendMessage({ type: "SET_PENDING", problem, source }); showToast("No known fix found — your request will continue normally. After the answer, open FixOnce and choose Save an AI answer.", "NEW PROBLEM"); }
   function handleSubmit(event, element) {
-    const problem = readPrompt(element); if (!problem) return; if (state.bypassNext) { state.bypassNext = false; return; }
+    const problem = readPrompt(element); if (!problem) return; rememberCaptureProblem(problem); if (state.bypassNext) { state.bypassNext = false; return; }
     const sameQuery = state.memory && normalize(state.memoryQuery) === normalize(problem); state.lastSendButton = event.type === "click" ? event.target.closest("button") : findSendButton();
     if (sameQuery && state.memory.result_type === "known") { event.preventDefault(); event.stopImmediatePropagation(); showKnown(state.memory); return; }
     rememberPending(problem);
@@ -79,5 +187,5 @@
   document.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey && isPromptElement(event.target)) handleSubmit(event, event.target); }, true);
   document.addEventListener("click", (event) => { const button = event.target.closest?.("button"); if (!button) return; const label = `${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""} ${button.dataset.testid || ""}`.toLowerCase(); if (/send|submit/.test(label)) handleSubmit(event, promptElement()); }, true);
   document.addEventListener("submit", (event) => { const element = promptElement(); if (element) handleSubmit(event, element); }, true);
+  loadAutoCaptureSetting();
 })();
-

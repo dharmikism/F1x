@@ -89,11 +89,25 @@ The Chrome Manifest V3 extension is the primary user-facing product. It supports
 - Explicit ChatGPT and Claude support.
 - A pre-send known-fix notice.
 - Saving a useful answer from ChatGPT or Claude as a private draft.
+- Optional automatic capture of the latest AI reply as a private draft.
 - Verification, feedback, optional sharing, and alternative recovery paths.
 
-On ChatGPT and Claude, the extension observes only the prompt field (`textarea` or `contenteditable`). It does not scrape conversations, read unrelated page content, intercept network traffic, or automatically publish anything.
+By default, the extension observes only the prompt field (`textarea` or `contenteditable`). It does not intercept network traffic or automatically publish anything. If the user turns on `Auto-save AI replies` in the popup, it also observes the visible assistant response in the active ChatGPT or Claude page and sends it to the backend as a private draft. That opt-in setting is off by default.
 
-While the user types, the extension performs a lookup-only request. If a match is found, it shows the known fix before the prompt is sent. If there is no match, the original prompt continues normally and the problem is stored locally as a pending item so the user can save the eventual AI answer later.
+While the user types, the extension performs a lookup-only request. If a match is found, it shows the known fix before the prompt is sent. If there is no match, the original prompt continues normally and the problem is stored locally as a pending item. With automatic capture enabled, the eventual AI answer is saved directly as a private draft; with it off, the user can save that answer manually later.
+
+### Automatic AI-answer capture
+
+When automatic capture is enabled:
+
+1. The extension remembers the submitted problem.
+2. It watches for the newest visible assistant response after ChatGPT or Claude answers.
+3. A debounced update is sent to `POST /api/knowledge/auto-save`.
+4. The backend keeps one private draft per conversation key.
+5. If the AI continues the conversation, the latest response replaces the earlier draft.
+6. Opening the FixOnce popup shows the private draft so the user can verify it and optionally share it.
+
+The capture is never published automatically. Turning the switch off stops future captures; it does not delete drafts already saved.
 
 ## Technical architecture
 
@@ -145,6 +159,7 @@ The local retrieval layer is dependency-light and fast:
 | Featherless integration and structured playbooks | `app/featherless.py` |
 | Privacy and time-sensitive request rules | `app/safety.py` |
 | ChatGPT/Claude prompt detection | `extension/content.js` |
+| Opt-in AI reply capture and latest-answer updates | `extension/content.js`, `extension/background.js` |
 | Extension background API bridge | `extension/background.js` |
 | Extension popup markup and actions | `extension/popup.html`, `extension/popup.js` |
 | Extension/dashboard visual design | `extension/popup.css`, `extension/content.css`, `frontend/styles.css` |
@@ -225,6 +240,7 @@ The free Render plan provides shared server memory while the service is running,
 POST /api/search-memory                         lookup-only extension search
 POST /api/find-fix                              search, then generate on a miss
 POST /api/knowledge/save                        save a private AI answer draft
+POST /api/knowledge/auto-save                   upsert an opt-in captured AI reply
 POST /api/knowledge/{id}/alternative            generate a different recovery path
 POST /api/knowledge/{id}/verify                 human verification
 POST /api/knowledge/{id}/share                  explicit community sharing

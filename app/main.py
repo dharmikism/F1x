@@ -47,6 +47,13 @@ class SaveSolutionRequest(BaseModel):
     source: str = Field(default="User saved from an AI answer", max_length=120)
 
 
+class AutoCaptureRequest(BaseModel):
+    problem: str = Field(min_length=3, max_length=1000)
+    solution: str = Field(min_length=10, max_length=15000)
+    capture_key: str = Field(min_length=8, max_length=500)
+    source: str = Field(default="Automatically captured from ChatGPT or Claude", max_length=120)
+
+
 class VerifyRequest(BaseModel):
     solved: bool
 
@@ -191,6 +198,39 @@ def save_solution(payload: SaveSolutionRequest):
         "category": payload.category.strip() or "general",
         "provider": payload.source.strip() or "User saved solution",
         "message": "Solution saved as a private draft. Verify it before sharing.",
+    }
+
+
+@app.post("/api/knowledge/auto-save")
+def auto_save_solution(payload: AutoCaptureRequest):
+    problem = payload.problem.strip()
+    solution = payload.solution.strip()
+    capture_key = payload.capture_key.strip()
+    safety = classify(problem)
+    if not safety["safe_to_reuse"]:
+        return {
+            "result_type": "blocked",
+            "problem": problem,
+            "message": "This response was not saved because the problem looks personal or time-sensitive.",
+            "safety": safety,
+        }
+    draft_id, updated = db.save_auto_capture(
+        problem,
+        solution,
+        "general",
+        payload.source.strip() or "Automatically captured from ChatGPT or Claude",
+        capture_key,
+    )
+    return {
+        "result_type": "new",
+        "auto_captured": True,
+        "updated": updated,
+        "draft_id": draft_id,
+        "problem": problem,
+        "suggestion": solution,
+        "category": "general",
+        "provider": payload.source.strip() or "Automatically captured from ChatGPT or Claude",
+        "message": "Latest AI response saved as a private draft. Verify it before sharing.",
     }
 
 

@@ -42,6 +42,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     sendResponse({ ok: true });
   }
+  if (message?.type === "AUTO_CAPTURE_SOLUTION") {
+    (async () => {
+      try {
+        const base = await getApiBase();
+        const response = await fetch(`${base}/api/knowledge/auto-save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            problem: String(message.problem || "").trim(),
+            solution: String(message.solution || "").trim(),
+            capture_key: String(message.captureKey || "").trim(),
+            source: String(message.source || "Automatically captured from ChatGPT or Claude"),
+          }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.detail || "Automatic save failed.");
+        if (body.result_type === "new") await chrome.storage.local.set({ pendingAutoCapture: body });
+        sendResponse({ ok: true, result: body });
+      } catch (error) {
+        sendResponse({ ok: false, error: "Automatic saving is unavailable right now." });
+      }
+    })();
+    return true;
+  }
   if (message?.type === "GENERATE_ALTERNATIVE") {
     (async () => {
       try {

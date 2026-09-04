@@ -60,7 +60,8 @@ class Database:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     provider TEXT,
-                    related_knowledge_id INTEGER
+                    related_knowledge_id INTEGER,
+                    capture_key TEXT
                 );
                 CREATE TABLE IF NOT EXISTS queries (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,6 +86,9 @@ class Database:
             knowledge_columns = {row["name"] for row in conn.execute("PRAGMA table_info(knowledge)").fetchall()}
             if "related_knowledge_id" not in knowledge_columns:
                 conn.execute("ALTER TABLE knowledge ADD COLUMN related_knowledge_id INTEGER")
+            if "capture_key" not in knowledge_columns:
+                conn.execute("ALTER TABLE knowledge ADD COLUMN capture_key TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_capture_key ON knowledge(capture_key)")
             feedback_columns = {row["name"] for row in conn.execute("PRAGMA table_info(feedback)").fetchall()}
             if "note" not in feedback_columns:
                 conn.execute("ALTER TABLE feedback ADD COLUMN note TEXT")
@@ -109,6 +113,7 @@ class Database:
     def public_knowledge(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
         data = dict(row)
         data.pop("embedding", None)
+        data.pop("capture_key", None)
         return data
 
     def all_shared_vectors(self) -> list[sqlite3.Row]:
@@ -132,6 +137,30 @@ class Database:
                 (problem, problem.lower().strip(), json.dumps(embed(problem)), solution, category, 0.75, timestamp, timestamp, provider, related_knowledge_id),
             )
             return int(cursor.lastrowid)
+
+    def save_auto_capture(self, problem: str, solution: str, category: str, provider: str, capture_key: str) -> tuple[int, bool]:
+        """Upsert the latest assistant reply into one private conversation draft."""
+        timestamp = now()
+        with self.connect() as conn:
+            existing = conn.execute(
+                "SELECT id FROM knowledge WHERE capture_key = ? AND verified = 0 AND shared = 0 ORDER BY updated_at DESC LIMIT 1",
+                (capture_key,),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """UPDATE knowledge SET problem = ?, normalized_problem = ?, embedding = ?, solution = ?,
+                       category = ?, updated_at = ?, provider = ? WHERE id = ?""",
+                    (problem, problem.lower().strip(), json.dumps(embed(problem)), solution, category, timestamp, provider, existing["id"]),
+                )
+                return int(existing["id"]), True
+            cursor = conn.execute(
+                """INSERT INTO knowledge
+                (problem, normalized_problem, embedding, solution, category, verified, shared,
+                 confidence, created_at, updated_at, provider, capture_key)
+                VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)""",
+                (problem, problem.lower().strip(), json.dumps(embed(problem)), solution, category, 0.75, timestamp, timestamp, provider, capture_key),
+            )
+            return int(cursor.lastrowid), False
 
     def verify(self, knowledge_id: int, solved: bool) -> sqlite3.Row | None:
         with self.connect() as conn:
