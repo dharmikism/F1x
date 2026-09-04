@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: fixonce
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: FEATHERLESS_API_KEY
+        sync: false
+      - key: FEATHERLESS_MODEL
+        value: Qwen/Qwen2.5-7B-Instruct
+      - key: FEATHERLESS_BASE_URL
+        value: https://api.featherless.ai/v1
+      - key: SIMILARITY_THRESHOLD
+        value: "0.64"
+      - key: DATABASE_PATH
+        value: /app/data/fixonce.db
+      - key: ALLOWED_ORIGINS
+        value: "*"

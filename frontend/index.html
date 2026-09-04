@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#11141d" />
+    <title>FixOnce — Community memory for recurring problems</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div>
+          <div class="brand">
+            <span class="brand-mark"><span></span><span></span><span></span></span>
+            <span>fixonce</span>
+          </div>
+          <p class="brand-tagline">Solve once. Reuse everywhere.</p>
+
+          <nav class="side-nav" aria-label="Main navigation">
+            <a class="nav-link active" href="#overview" data-nav="overview"><span class="nav-icon">⌂</span>Overview</a>
+            <a class="nav-link" href="#memory" data-nav="memory"><span class="nav-icon">◈</span>Community memory</a>
+            <a class="nav-link" href="#analytics" data-nav="analytics"><span class="nav-icon">◒</span>Analytics</a>
+          </nav>
+        </div>
+        <div class="sidebar-bottom">
+          <div class="community-card">
+            <div class="community-topline"><span class="pulse-dot"></span><span>Community space</span></div>
+            <strong>Hackathon workspace</strong>
+            <span class="community-members">Shared by your team <span class="avatar-stack"><i></i><i></i><i></i></span></span>
+          </div>
+          <div class="sidebar-footer"><span class="status-dot"></span> Local API connected <span class="version">v0.1</span></div>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="crumb"><span>Workspace</span><span class="crumb-chevron">/</span><strong>Overview</strong></div>
+          <div class="top-actions">
+            <button class="text-button" id="reset-button" title="Reset the starter demo data">Reset demo</button>
+            <button class="simulation-button" id="run-demo-button"><span class="play-icon">▶</span> Run demo simulation</button>
+            <div class="user-chip"><span class="user-avatar">DH</span><span>Demo user</span><span class="chevron">⌄</span></div>
+          </div>
+        </header>
+
+        <section id="overview" class="page-section overview-section">
+          <div class="hero-copy">
+            <div class="eyebrow"><span class="eyebrow-line"></span> COMMUNITY PROBLEM MEMORY</div>
+            <h1>The fastest path to a <em>known fix.</em></h1>
+            <p class="hero-subtitle">Turn the problems your community has already solved into instant, reusable knowledge.</p>
+          </div>
+
+          <div class="lookup-layout">
+            <div class="lookup-card card-surface">
+              <div class="card-heading">
+                <div><span class="section-kicker">LOOKUP</span><h2>What needs fixing?</h2></div>
+                <span class="lock-label">⌁ Private until you share</span>
+              </div>
+              <form id="lookup-form">
+                <label class="sr-only" for="problem-input">Describe the problem</label>
+                <textarea id="problem-input" rows="4" maxlength="1000" placeholder="Describe the problem in your own words…">My office WiFi says connected but I can't access the internet.</textarea>
+                <div class="input-footer"><span id="char-count">74 / 1000</span><span class="shortcut-hint"><kbd>⌘</kbd><kbd>↵</kbd> to search</span></div>
+                <button class="primary-button" type="submit" id="find-button"><span class="button-icon">⌕</span> Find known fix <span class="button-arrow">↗</span></button>
+              </form>
+              <div class="example-row"><span>Try an example</span><button type="button" class="example-chip" data-example="I'm connected to the office network but websites aren't loading.">Wi-Fi connection</button><button type="button" class="example-chip" data-example="Git push is rejected and says my SSH key is not accepted.">Git authentication</button><button type="button" class="example-chip" data-example="The production deployment succeeds but the app is a blank page.">Deployment issue</button></div>
+            </div>
+
+            <div class="signal-card">
+              <div class="signal-orbit orbit-one"></div><div class="signal-orbit orbit-two"></div>
+              <div class="signal-core"><span class="core-mark">✓</span></div>
+              <div class="signal-label"><span class="live-indicator"></span> LIVE COMMUNITY SIGNAL</div>
+              <strong>One person solves it.<br /><span>The community remembers.</span></strong>
+              <div class="signal-stat"><span class="signal-stat-number" id="signal-fixes">217</span><span>known fixes in memory</span></div>
+            </div>
+          </div>
+
+          <div id="result-region" class="result-region" aria-live="polite"></div>
+
+          <div class="metrics-row" id="metrics-row">
+            <article class="metric-card"><div class="metric-label">PROBLEMS SOLVED <span class="metric-info">i</span></div><div class="metric-value" id="metric-solved">342</div><div class="metric-trend positive">↗ <span>from community activity</span></div></article>
+            <article class="metric-card accent-card"><div class="metric-label">KNOWN FIXES <span class="metric-info">i</span></div><div class="metric-value" id="metric-fixes">217</div><div class="metric-trend positive">↗ <span>shared &amp; verified</span></div></article>
+            <article class="metric-card"><div class="metric-label">SOLUTIONS REUSED <span class="metric-info">i</span></div><div class="metric-value" id="metric-reused">279</div><div class="metric-trend positive">↗ <span>across your workspace</span></div></article>
+            <article class="metric-card"><div class="metric-label">AI GENERATIONS AVOIDED <span class="metric-info">i</span></div><div class="metric-value" id="metric-avoided">216</div><div class="metric-trend neutral">⌁ <span>less repeated inference</span></div></article>
+          </div>
+        </section>
+
+        <section id="memory" class="page-section memory-section">
+          <div class="section-header"><div><div class="eyebrow small"><span class="eyebrow-line"></span> SHARED KNOWLEDGE</div><h2>Community memory</h2></div><button class="outline-button" id="view-all-button">View all <span>↗</span></button></div>
+          <div class="content-grid">
+            <div class="knowledge-panel card-surface">
+              <div class="panel-toolbar"><div class="search-field"><span>⌕</span><input id="knowledge-search" placeholder="Search known fixes" /></div><button class="filter-button">All categories <span>⌄</span></button></div>
+              <div id="knowledge-list" class="knowledge-list"><div class="loading-line">Loading community memory…</div></div>
+            </div>
+            <div class="reuse-panel card-surface">
+              <div class="panel-top"><div><span class="section-kicker">THIS MONTH</span><h3>Memory is compounding</h3></div><span class="trend-badge">+28.4%</span></div>
+              <div class="chart-wrap"><div class="chart-y-labels"><span>300</span><span>200</span><span>100</span><span>0</span></div><svg class="reuse-chart" viewBox="0 0 400 190" preserveAspectRatio="none" role="img" aria-label="Rising reuse trend"><defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#c8fa6b" stop-opacity=".27"/><stop offset="1" stop-color="#c8fa6b" stop-opacity="0"/></linearGradient></defs><path d="M0,164 C30,157 38,147 66,150 S97,125 124,134 S153,116 180,124 S202,91 231,103 S264,76 289,80 S320,55 344,62 S375,28 400,31 L400,190 L0,190Z" fill="url(#chartFill)"/><path d="M0,164 C30,157 38,147 66,150 S97,125 124,134 S153,116 180,124 S202,91 231,103 S264,76 289,80 S320,55 344,62 S375,28 400,31" fill="none" stroke="#c8fa6b" stroke-width="3" stroke-linecap="round"/><circle cx="400" cy="31" r="5" fill="#c8fa6b" stroke="#20252b" stroke-width="4"/></svg><div class="chart-x-labels"><span>01 May</span><span>08 May</span><span>15 May</span><span>22 May</span><span>Today</span></div></div>
+              <div class="chart-legend"><span><i class="legend-dot lime"></i>Reuse events</span><span><i class="legend-dot gray"></i>AI requests avoided</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="analytics" class="page-section analytics-section">
+          <div class="section-header"><div><div class="eyebrow small"><span class="eyebrow-line"></span> MEASURED IMPACT</div><h2>Resolution economics</h2></div><span class="data-note"><span class="live-indicator"></span> Updates from live activity</span></div>
+          <div class="analytics-grid">
+            <article class="analytics-highlight card-surface"><div class="highlight-icon">⌁</div><div><span class="section-kicker">SEMANTIC CACHE HIT RATE</span><div class="highlight-value" id="hit-rate">0%</div><p>Every hit is a problem your community resolved without a new generation.</p></div></article>
+            <article class="latency-card card-surface"><div class="panel-top"><div><span class="section-kicker">RESPONSE LATENCY</span><h3>Known fix vs fresh solve</h3></div><span class="latency-pill">REAL TIME</span></div><div class="latency-bars"><div class="latency-row"><span>Known fix</span><div class="bar-track"><i id="cache-bar"></i></div><strong id="cache-latency">— ms</strong></div><div class="latency-row"><span>Fresh AI</span><div class="bar-track ai"><i id="ai-bar"></i></div><strong id="ai-latency">— ms</strong></div></div><div class="latency-foot"><span><i class="legend-dot lime"></i> Semantic search</span><span><i class="legend-dot purple"></i> Featherless generation</span></div></article>
+          </div>
+        </section>
+
+        <footer class="page-footer"><div class="brand mini"><span class="brand-mark"><span></span><span></span><span></span></span><span>fixonce</span></div><span>Shared memory for recurring problems.</span><span class="footer-right">Built for communities that learn</span></footer>
+      </main>
+    </div>
+    <div id="toast-region" class="toast-region"></div>
+    <div id="simulation-modal" class="modal-backdrop" hidden><div class="simulation-modal card-surface"><button class="modal-close" id="close-modal">×</button><div class="eyebrow"><span class="eyebrow-line"></span> CONTROLLED SIMULATION</div><h2>Memory changes the math.</h2><p class="modal-subtitle">A fixed set of paraphrased recurring problems, processed by the same semantic search used above.</p><div id="simulation-content" class="simulation-content"></div></div></div>
+    <script src="/app.js"></script>
+  </body>
+</html>
+

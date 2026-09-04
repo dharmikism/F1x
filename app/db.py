@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .embeddings import embed
+
+
+DEFAULT_DB = os.getenv("DATABASE_PATH", "./data/fixonce.db")
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class Database:
+    def __init__(self, path: str = DEFAULT_DB):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.init_schema()
+
+    @contextmanager
+    def connect(self):
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        try:
+            yield connection
+            connection.commit()
+        finally:
+            connection.close()
+
+    def init_schema(self):
+        with self.connect() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS knowledge (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    problem TEXT NOT NULL,
+                    normalized_problem TEXT NOT NULL,
+                    embedding TEXT NOT NULL,
+                    solution TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    verified INTEGER NOT NULL DEFAULT 0,
+                    shared INTEGER NOT NULL DEFAULT 0,
+                    verification_count INTEGER NOT NULL DEFAULT 0,
+                    helpful_count INTEGER NOT NULL DEFAULT 0,
+                    unhelpful_count INTEGER NOT NULL DEFAULT 0,
+                    usage_count INTEGER NOT NULL DEFAULT 0,
+                    confidence REAL NOT NULL DEFAULT 0.8,
+                    expires_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    provider TEXT
+                );
+                CREATE TABLE IF NOT EXISTS queries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    query TEXT NOT NULL,
+                    result_type TEXT NOT NULL,
+                    matched_knowledge_id INTEGER,
+                    similarity REAL,
+                    latency_ms INTEGER NOT NULL,
+                    ai_latency_ms INTEGER,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS feedback (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    knowledge_id INTEGER NOT NULL,
+                    helpful INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+
+    def list_knowledge(self, include_drafts: bool = False) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM knowledge WHERE shared = 1 AND verified = 1 ORDER BY updated_at DESC"
+            ).fetchall()
+        return [self.public_knowledge(row) for row in rows]
+
+    @staticmethod
+    def public_knowledge(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        data = dict(row)
+        data.pop("embedding", None)
+        return data
+
+    def all_shared_vectors(self) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute(
+                "SELECT * FROM knowledge WHERE shared = 1 AND verified = 1"
+            ).fetchall()
+
+    def get_knowledge(self, knowledge_id: int) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute("SELECT * FROM knowledge WHERE id = ?", (knowledge_id,)).fetchone()
+
+    def create_draft(self, problem: str, solution: str, category: str, provider: str) -> int:
+        timestamp = now()
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """INSERT INTO knowledge
+                (problem, normalized_problem, embedding, solution, category, verified, shared,
+                 confidence, created_at, updated_at, provider)
+                VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)""",
+                (problem, problem.lower().strip(), json.dumps(embed(problem)), solution, category, 0.75, timestamp, timestamp, provider),
+            )
+            return int(cursor.lastrowid)
+
+    def verify(self, knowledge_id: int, solved: bool) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            if solved:
+                conn.execute(
+                    "UPDATE knowledge SET verified = 1, verification_count = verification_count + 1, updated_at = ? WHERE id = ?",
+                    (now(), knowledge_id),
+                )
+            return conn.execute("SELECT * FROM knowledge WHERE id = ?", (knowledge_id,)).fetchone()
+
+    def share(self, knowledge_id: int) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE knowledge SET shared = 1, updated_at = ? WHERE id = ? AND verified = 1",
+                (now(), knowledge_id),
+            )
+            return conn.execute("SELECT * FROM knowledge WHERE id = ?", (knowledge_id,)).fetchone()
+
+    def record_use(self, knowledge_id: int):
+        with self.connect() as conn:
+            conn.execute("UPDATE knowledge SET usage_count = usage_count + 1, updated_at = ? WHERE id = ?", (now(), knowledge_id))
+
+    def record_feedback(self, knowledge_id: int, helpful: bool):
+        with self.connect() as conn:
+            column = "helpful_count" if helpful else "unhelpful_count"
+            conn.execute(f"UPDATE knowledge SET {column} = {column} + 1, updated_at = ? WHERE id = ?", (now(), knowledge_id))
+            conn.execute("INSERT INTO feedback (knowledge_id, helpful, created_at) VALUES (?, ?, ?)", (knowledge_id, int(helpful), now()))
+
+    def record_query(self, query: str, result_type: str, match_id: int | None, similarity: float | None, latency_ms: int, ai_latency_ms: int | None = None):
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT INTO queries (query, result_type, matched_knowledge_id, similarity, latency_ms, ai_latency_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (query, result_type, match_id, similarity, latency_ms, ai_latency_ms, now()),
+            )
+
+    def stats(self) -> dict[str, Any]:
+        with self.connect() as conn:
+            count = conn.execute("SELECT COUNT(*) AS count FROM queries").fetchone()["count"]
+            hits = conn.execute("SELECT COUNT(*) AS count FROM queries WHERE result_type = 'known'").fetchone()["count"]
+            misses = conn.execute("SELECT COUNT(*) AS count FROM queries WHERE result_type IN ('new', 'blocked')").fetchone()["count"]
+            ai_calls = conn.execute("SELECT COUNT(*) AS count FROM queries WHERE result_type = 'new' AND ai_latency_ms IS NOT NULL").fetchone()["count"]
+            avg_cache = conn.execute("SELECT AVG(latency_ms) AS value FROM queries WHERE result_type = 'known'").fetchone()["value"]
+            avg_ai = conn.execute("SELECT AVG(ai_latency_ms) AS value FROM queries WHERE ai_latency_ms IS NOT NULL").fetchone()["value"]
+            verified = conn.execute("SELECT COUNT(*) AS count FROM knowledge WHERE verified = 1 AND shared = 1").fetchone()["count"]
+            reuse = conn.execute("SELECT COALESCE(SUM(usage_count), 0) AS count FROM knowledge WHERE shared = 1 AND verified = 1").fetchone()["count"]
+            helpful = conn.execute("SELECT COALESCE(SUM(helpful_count), 0) AS count FROM knowledge").fetchone()["count"]
+        return {
+            "total_queries": count,
+            "problems_solved": hits + verified,
+            "semantic_cache_hits": hits,
+            "misses": misses,
+            "featherless_calls": ai_calls,
+            "ai_generations_avoided": hits,
+            "hit_rate": round((hits / count) * 100, 1) if count else 0,
+            "avg_cache_latency_ms": round(avg_cache or 0, 1),
+            "avg_fresh_ai_latency_ms": round(avg_ai or 0, 1),
+            "verified_fixes": verified,
+            "reuse_events": reuse,
+            "helpful_votes": helpful,
+        }
+
+    def seed(self):
+        with self.connect() as conn:
+            existing = conn.execute("SELECT COUNT(*) AS count FROM knowledge").fetchone()["count"]
+        if existing:
+            return
+        seeds = [
+            ("VPN client connects but internal tools stay unavailable", "1. Quit and reopen the VPN client.\n2. Sign out and sign back in to refresh the session.\n3. Confirm the internal domain resolves while connected.\n4. If it still fails, switch networks once and reconnect.", "workplace IT"),
+            ("Office printer is online but jobs remain stuck in the queue", "1. Cancel the stuck job.\n2. Restart the Print Spooler service.\n3. Remove and re-add the shared printer.\n4. Send a one-page test print before resuming the batch.", "workplace IT"),
+            ("Git push is rejected because the SSH key is not accepted", "1. Run `ssh -T git@github.com` to confirm the failure.\n2. Add the correct public key to your approved Git account.\n3. Confirm the repository remote uses the SSH URL.\n4. Retry the push.", "developer tools"),
+            ("Python package installation fails inside a new project", "1. Create and activate a project virtual environment.\n2. Upgrade pip.\n3. Install from the lockfile or requirements file.\n4. Restart the IDE so it uses the new interpreter.", "software setup"),
+            ("Browser blocks an internal site because its certificate is invalid", "1. Check the device date and time.\n2. Try the approved browser profile.\n3. Do not bypass the warning for sensitive work.\n4. Send the hostname and certificate error to the site owner.", "workplace IT"),
+            ("Deployment succeeds but the production app shows a blank page", "1. Open the deployment runtime logs.\n2. Confirm the production build command and output directory.\n3. Add required environment variables in the hosting provider.\n4. Redeploy and test the production URL.", "hackathon"),
+        ]
+        timestamp = now()
+        with self.connect() as conn:
+            for problem, solution, category in seeds:
+                conn.execute(
+                    """INSERT INTO knowledge
+                    (problem, normalized_problem, embedding, solution, category, verified, shared,
+                     verification_count, helpful_count, usage_count, confidence, created_at, updated_at, provider)
+                    VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?)""",
+                    (problem, problem.lower(), json.dumps(embed(problem)), solution, category, 7, 5, 12, 0.91, timestamp, timestamp, "Community verified"),
+                )
+
+    def reset(self):
+        with self.connect() as conn:
+            conn.execute("DELETE FROM knowledge")
+            conn.execute("DELETE FROM queries")
+            conn.execute("DELETE FROM feedback")

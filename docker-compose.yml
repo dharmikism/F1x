@@ -1,0 +1,14 @@
+services:
+  fixonce:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - fixonce-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  fixonce-data:
+

@@ -1,0 +1,46 @@
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({ id: "fixonce-selection", title: "Find FixOnce solution", contexts: ["selection"] });
+});
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === "fixonce-selection" && info.selectionText) {
+    chrome.storage.local.set({ selectedProblem: info.selectionText });
+  }
+});
+
+function getApiBase() {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get({ apiBaseUrl: "http://localhost:8000" }, (data) => {
+      resolve(String(data.apiBaseUrl || "http://localhost:8000").replace(/\/$/, ""));
+    });
+  });
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "CHECK_MEMORY") {
+    (async () => {
+      try {
+        const base = await getApiBase();
+        const response = await fetch(`${base}/api/search-memory`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ problem: String(message.problem || "").trim() }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.detail || "FixOnce lookup failed.");
+        sendResponse({ ok: true, result: body });
+      } catch (error) {
+        sendResponse({ ok: false, error: "FixOnce is unavailable right now." });
+      }
+    })();
+    return true;
+  }
+  if (message?.type === "SET_PENDING") {
+    chrome.storage.local.set({
+      pendingProblem: String(message.problem || ""),
+      pendingSource: String(message.source || "ChatGPT or Claude"),
+    });
+    sendResponse({ ok: true });
+  }
+});
+
