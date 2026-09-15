@@ -1,4 +1,4 @@
-# FixOnce
+# F1x
 
 > Solve once. Reuse everywhere.
 
